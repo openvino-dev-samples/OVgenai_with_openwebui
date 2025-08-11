@@ -16,6 +16,7 @@
 
 import os
 from transformers.utils import logging
+from transformers import AutoTokenizer
 import time
 import asyncio
 #from transformers import TextIteratorStreamer
@@ -108,7 +109,7 @@ class IterableStreamer(openvino_genai.StreamerBase):
         else:
             self.tokens_cache.append(token)
 
-        text = self.tokenizer.decode(self.tokens_cache)
+        text = self.tokenizer.decode(self.tokens_cache, skip_special_tokens=True)
         self.decoded_lengths.append(len(text))
 
         word = ""
@@ -147,7 +148,7 @@ class IterableStreamer(openvino_genai.StreamerBase):
             return
 
         cache_for_position = self.tokens_cache[: cache_position + 1]
-        text_for_position = self.tokenizer.decode(cache_for_position)
+        text_for_position = self.tokenizer.decode(cache_for_position, skip_special_tokens=True)
 
         if len(text_for_position) > 0 and text_for_position[-1] == chr(65533):
             # Mark text as incomplete
@@ -159,7 +160,7 @@ class IterableStreamer(openvino_genai.StreamerBase):
         """
         Flushes residual tokens from the buffer and puts a None value in the queue to signal the end.
         """
-        text = self.tokenizer.decode(self.tokens_cache)
+        text = self.tokenizer.decode(self.tokens_cache, skip_special_tokens=True)
         if len(text) > self.print_len:
             word = text[self.print_len :]
             self.write_word(word)
@@ -189,7 +190,7 @@ class ChunkStreamer(IterableStreamer):
         return openvino_genai.StreamingStatus.RUNNING
 
 class ModelWorker:
-    def __init__(self, checkpoint, device="GPU"):
+    def __init__(self, checkpoint, use_genai_tokenizer=False, device="GPU"):
         self.device = device
         start = time.perf_counter()
 
@@ -204,16 +205,20 @@ class ModelWorker:
 
         self.config = openvino_genai.GenerationConfig()
         self.config.max_new_tokens = 2048
+        if use_genai_tokenizer:
+            self.tokenizer = self.model.get_tokenizer()
+            self.tokenizer = self.model.get_tokenizer()
+            self.tokenizer.set_chat_template("{% for message in messages %}{% if message['role'] == 'system' %}<|startoftext|>{{ message['content'] }}<|extra_4|>{% elif message['role'] == 'assistant' %}<|startoftext|>{{ message['content'] }}<|eos|>{% else %}<|startoftext|>{{ message['content'] }}<|extra_0|>{% endif %}{% endfor %}{{- '<think>\n\n</think>\n' }}")
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(checkpoint, trust_remote_code=True)
 
-
-        chat_template = \
-            "{% for message in messages %}"\
-            "{% if (message['role'] == 'user') %}"\
-            "{{'<|im_start|>user\n' + message['content'] + '<|im_end|>\n<|im_start|>assistant\n'}}"\
-            "{% elif (message['role'] == 'assistant') %}{{message['content'] + '<|im_end|>\n'}}"\
-            "{% endif %}"\
-            "{% endfor %}"
-       # self.model.get_tokenizer().set_chat_template(chat_template)
+        # chat_template = \
+        #     "{% for message in messages %}"\
+        #     "{% if (message['role'] == 'user') %}"\
+        #     "{{'<|im_start|>user\n' + message['content'] + '<|im_end|>\n<|im_start|>assistant\n'}}"\
+        #     "{% elif (message['role'] == 'assistant') %}{{message['content'] + '<|im_end|>\n'}}"\
+        #     "{% endif %}"\
+        #     "{% endfor %}"
 
         end = time.perf_counter()
         logger.info(f"Time to load weights: {end - start:.2f}s")
@@ -251,7 +256,7 @@ class ModelWorker:
             plain_texts, parameters, request_id = \
                 await self.add_request()
             tokens_len = 10  # chunk size
-            self.streamer[request_id] = ChunkStreamer(self.model.get_tokenizer(), tokens_len)
+            self.streamer[request_id] = ChunkStreamer(self.tokenizer, tokens_len)
             def model_generate():
                 self.model.generate(plain_texts, self.config, self.streamer[request_id])
             

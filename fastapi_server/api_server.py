@@ -22,6 +22,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
 import asyncio
 import uuid
+import openvino_genai
 from typing import List, Optional, Union, Dict
 from fastapi.middleware.cors import CORSMiddleware
 from .tgi_protocol import Parameters
@@ -186,15 +187,18 @@ async def chat_stream_generator(local_model, delta_text_queue, request_id):
     ms_first_token = timeFirst * 1000
     #print("******* token_output \n",token_output)
     print("Generation time(s):",timeCost)
-    # token_count_output = len(tokenizer.tokenize(token_output)) #0808
-    # ms_after_token = (timeCost - timeFirst) / (token_count_output - 1+1e-8) * 1000
-    # print("First token latency(ms): ", ms_first_token)
-    # print("token count output: ", token_count_output)
-    # try:
-    #     print("After token latency(ms/token)", ms_after_token)
-    #     print("After token latency(token/s)", 1000 / ms_after_token)
-    # except:
-    #     print("!!! timeCost = timeFirst")
+    if isinstance(tokenizer, openvino_genai.Tokenizer):
+        token_count_output = tokenizer.encode(token_output).input_ids.shape[1] #0808
+    else:
+        token_count_output = len(tokenizer.encode(token_output)) 
+    ms_after_token = (timeCost - timeFirst) / (token_count_output - 1+1e-8) * 1000
+    print("First token latency(ms): ", ms_first_token)
+    print("token count output: ", token_count_output)
+    try:
+        print("After token latency(ms/token)", ms_after_token)
+        print("After token latency(token/s)", 1000 / ms_after_token)
+    except:
+        print("!!! timeCost = timeFirst")
     local_model.streamer.pop(request_id, None)
 
 

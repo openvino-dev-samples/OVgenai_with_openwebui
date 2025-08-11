@@ -41,15 +41,10 @@ async def main():
 
     args = parser.parse_args()
     model_path = args.repo_id_or_model_path
-    local_model = ModelWorker(model_path, device=args.device)
-
-    #tokenizer = AutoTokenizer.from_pretrained(checkpoint)
-    tokenizer = None
-    
-   # prompt = "<｜User｜>Write a quicksort algorithm in Python. Write code only.<｜Assistant｜><think>"
+    local_model = ModelWorker(model_path, use_genai_tokenizer=False, device=args.device)
     prompt = "hi"
     local_model.warmup(prompt)
-    myapp = FastApp(local_model, tokenizer)
+    myapp = FastApp(local_model, local_model.tokenizer)
     config = uvicorn.Config(app=myapp.app, host="0.0.0.0", port=args.port)
     server = uvicorn.Server(config)
     await server.serve()
